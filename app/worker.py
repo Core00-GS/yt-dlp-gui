@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadWorker(QtCore.QThread):
-    finished = QtCore.Signal(int)
     progress = QtCore.Signal(object, list)
 
     def __init__(self, item, config, link, path, preset):
@@ -68,7 +67,7 @@ class DownloadWorker(QtCore.QThread):
                         p.terminate()
                         p.wait()
                         logger.info(f"Download ({self.id}) stopped.")
-                        return self.finished.emit(self.id)
+                        break
 
                 line = line.strip()
                 if "__SEP__" in line:
@@ -103,4 +102,3 @@ class DownloadWorker(QtCore.QThread):
                     (TreeColumn.STATUS, "Finished"),
                 ],
             )
-        self.finished.emit(self.id)

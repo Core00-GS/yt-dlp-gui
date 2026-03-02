@@ -2,11 +2,11 @@ import logging
 import sys
 
 import qtawesome as qta
-from worker import DownloadWorker
 from dep_dl import DepWorker
 from PySide6 import QtCore, QtGui, QtWidgets
 from ui.main_window import Ui_MainWindow
-from utils import *
+from utils import BIN_DIR, ROOT, ItemRoles, load_toml, save_toml
+from worker import DownloadWorker
 
 __version__ = ""
 logging.basicConfig(
@@ -51,10 +51,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.dep_worker.start()
 
         self.to_dl = {}
-        self.worker = {}
+        self.workers = {}
         self.index = 0
 
-        self.tw.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.tw.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self.tw.customContextMenuRequested.connect(self.open_menu)
 
     def connect_ui(self):
@@ -72,12 +72,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.action_clear_url_list.triggered.connect(self.te_link.clear)
 
     def on_dep_progress(self, status):
-        self.statusBar.showMessage(status)
+        self.statusBar.showMessage(status, 10000)
 
     def on_dep_finished(self):
         self.dep_worker.deleteLater()
         self.pb_download.setEnabled(True)
-        self.statusBar.showMessage("")
 
     def open_folder(self, path):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(path))
@@ -119,7 +118,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         logger.debug(f"Removing download ({item_id}): {item_text}")
 
-        if worker := self.worker.get(item_id):
+        if worker := self.workers.get(item_id):
             worker.stop()
 
         self.to_dl.pop(item_id, None)
@@ -132,7 +131,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self,
             "Select a folder",
             self.le_path.text() or QtCore.QDir.homePath(),
-            QtWidgets.QFileDialog.ShowDirsOnly,
+            QtWidgets.QFileDialog.Option.ShowDirsOnly,
         )
 
         if path:
@@ -168,19 +167,21 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pb.setStyleSheet("QProgressBar { margin-bottom: 3px; }")
             pb.setTextVisible(False)
             self.tw.setItemWidget(item, 3, pb)
-            [item.setTextAlignment(i, QtCore.Qt.AlignCenter) for i in range(1, 6)]
+            [
+                item.setTextAlignment(i, QtCore.Qt.AlignmentFlag.AlignCenter)
+                for i in range(1, 6)
+            ]
             item.setData(0, ItemRoles.IdRole, self.index)
             item.setData(0, ItemRoles.LinkRole, link)
             item.setData(0, ItemRoles.PathRole, path)
 
-            self.to_dl[self.index] = DownloadWorker(
-                item, self.config, link, path, preset
-            )
+            worker = DownloadWorker(item, self.config, link, path, preset)
+            self.to_dl[self.index] = worker
             logger.info(f"Queued download ({self.index}) added {link}")
             self.index += 1
 
     def button_clear(self):
-        if self.worker:
+        if self.workers:
             return QtWidgets.QMessageBox.critical(
                 self,
                 "Application Message",
@@ -188,7 +189,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 "Remove a download by right clicking on it and selecting delete.",
             )
 
-        self.worker = {}
+        self.workers = {}
         self.to_dl = {}
         self.tw.clear()
 
@@ -203,12 +204,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 "Unable to download because there are no links in the list.",
             )
 
-        for k, v in self.to_dl.items():
-            self.worker[k] = v
-            self.worker[k].finished.connect(self.worker[k].deleteLater)
-            self.worker[k].finished.connect(lambda x: self.worker.pop(x))
-            self.worker[k].progress.connect(self.on_dl_progress)
-            self.worker[k].start()
+        for idx, worker in self.to_dl.items():
+            self.workers[idx] = worker
+            worker.finished.connect(worker.deleteLater)
+            worker.finished.connect(lambda x=idx: self.workers.pop(x))
+            worker.progress.connect(self.on_dl_progress)
+            worker.start()
 
         self.to_dl = {}
 
@@ -221,7 +222,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             QtWidgets.QMessageBox.critical(
                 self,
                 "Application Message",
-                f"Config file error.",
+                "Config file error.",
             )
             logger.error("Config file error.", exc_info=True)
             QtWidgets.QApplication.exit()

@@ -131,6 +131,7 @@ class DepWorker(QThread):
         if p.returncode != 0:
             logger.error(f"yt-dlp update failed returncode: {p.returncode}\n{output}")
         elif updated:
+            self.progress.emit("yt-dlp updated")
             logger.info(f"yt-dlp updated\n{output}")
 
     def _download(self):
